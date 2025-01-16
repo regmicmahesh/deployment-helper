@@ -55,7 +55,7 @@ def _get_file_content_by_path(
     return ""
 
 
-def get_files(
+def get_github_files(
     *,
     logger=structlog.get_logger(),
     github_access_token: str,

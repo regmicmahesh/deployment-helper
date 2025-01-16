@@ -9,6 +9,35 @@ T = ty.TypeVar("T")
 logger = structlog.get_logger()
 
 
+def invoke(
+    *,
+    openai_api_key: str,
+    user_prompt: str,
+):
+    client = OpenAI(api_key=openai_api_key)
+
+    chat_completion = client.chat.completions.create(
+        messages=[
+            {
+                "role": "user",
+                "content": user_prompt,
+            },
+        ],
+        model=MODEL_NAME,
+        n=1,
+    )
+
+    message_content = chat_completion.choices[0].message.content
+
+    logger.debug(
+        "received response from openai api",
+        user_prompt=user_prompt,
+        message_content=message_content,
+    )
+
+    return message_content  # type: ignore
+
+
 def invoke_structured(
     *,
     openai_api_key: str,

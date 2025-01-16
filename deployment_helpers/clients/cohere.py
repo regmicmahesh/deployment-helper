@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 RERANKER_MODEL_NAME = "rerank-v3.5"
 
-logger = structlog.get_logger()
-
 
 @dataclass
 class RankedText:
@@ -16,16 +14,16 @@ class RankedText:
 
 def rerank_documents(
     *,
+    logger=structlog.get_logger(),
     api_key: str,
     query: str,
     documents: list[str],
     top_n: int | None = None,
     relevance_score_threshold: float,
 ) -> list[RankedText]:
-    logger.debug(
+    logger.info(
         "invoking cohere api for reranking",
         document_count=len(documents),
-        query=query[:100],
     )
 
     co = cohere.ClientV2(api_key=api_key)  # type: ignore

@@ -2,14 +2,17 @@ import structlog
 import yaml
 from dataclasses import asdict
 
+from deployment_helpers.aws_data import AWS_SERVICES_MAP
 from deployment_helpers.clients.github import GithubFile
 from deployment_helpers.clients.cohere import rerank_documents
 
 
-FILE_RELEVANCE_RERANKER_PROMPT = """
+PROMPT = """
 AWS SDK function calls (boto3, aws-go-sdk, awssdkv3) and wrapper functions
 that interact with AWS services.
-"""
+{aws_services}
+
+""".format(aws_services=yaml.dump(AWS_SERVICES_MAP))
 
 
 def find_relevant_github_source_files(
@@ -28,8 +31,9 @@ def find_relevant_github_source_files(
 
     # Rerank files using cohere reranker.
     reranked_texts = rerank_documents(
+        logger=logger,
         api_key=reranker_api_key,
-        query=FILE_RELEVANCE_RERANKER_PROMPT,
+        query=PROMPT,
         documents=plain_files,
         top_n=top_n,
         relevance_score_threshold=relevance_score_threshold,
@@ -38,6 +42,10 @@ def find_relevant_github_source_files(
     reranked_files: list[GithubFile] = []
     for text in reranked_texts:
         file_dict = yaml.safe_load(text.content)
-        reranked_files.append(GithubFile(**file_dict))
+        github_file = GithubFile(**file_dict)
+        reranked_files.append(github_file)
 
     return reranked_files
+
+
+__ALL__ = ["find_relevant_github_source_files"]

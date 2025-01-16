@@ -26,8 +26,4 @@ AWS_SERVICES_MAP = _extract_all_iam_service_actions()
 AWS_SERVICE_NAMES = [el for el in AWS_SERVICES_MAP]
 
 
-def is_valid_aws_service_action(service: str, action: str) -> bool:
-    try:
-        return action in AWS_SERVICES_MAP.get(service, [])
-    except Exception:
-        return False
+__ALL__ = ["AWS_SERVICES_MAP", "AWS_SERVICE_NAMES", "is_valid_aws_service_action"]
