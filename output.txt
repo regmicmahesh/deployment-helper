@@ -1,0 +1,92 @@
+path: screen/component/list.go
+url: https://api.github.com/repos/blackironj/ses-gui/git/blobs/95c2bfa3327a795e94fe0c4b676eb563377ea2bd
+size: 6391
+content: "package component\n\nimport (\n\t\"errors\"\n\t\"fmt\"\n\t\"io/ioutil\"\n\
+  \t\"log\"\n\t\"os/exec\"\n\t\"path/filepath\"\n\t\"runtime\"\n\n\t\"fyne.io/fyne/v2\"\
+  \n\t\"fyne.io/fyne/v2/container\"\n\t\"fyne.io/fyne/v2/dialog\"\n\t\"fyne.io/fyne/v2/storage\"\
+  \n\t\"fyne.io/fyne/v2/theme\"\n\t\"fyne.io/fyne/v2/widget\"\n\tsessdk \"github.com/aws/aws-sdk-go/service/ses\"\
+  \n\t\"github.com/mitchellh/go-homedir\"\n\n\t\"github.com/blackironj/ses-gui/repo\"\
+  \n\t\"github.com/blackironj/ses-gui/screen/channel\"\n\t\"github.com/blackironj/ses-gui/ses\"\
+  \n)\n\nconst (\n\t_downloadDir = \"Downloads\"\n)\n\nfunc MakeTemplateListTitle()\
+  \ *fyne.Container {\n\treturn container.NewCenter(\n\t\tcontainer.NewHBox(\n\t\t\
+  \twidget.NewIcon(theme.DocumentIcon()),\n\t\t\twidget.NewLabelWithStyle(\"Template\
+  \ List\", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),\n\t\t),\n\t)\n}\n\n\
+  func MakeTemplateList(w fyne.Window) *widget.List {\n\tlist := widget.NewList(\n\
+  \t\tfunc() int {\n\t\t\treturn repo.TemplateList().Len()\n\t\t},\n\t\tfunc() fyne.CanvasObject\
+  \ {\n\t\t\tbuttonBox := container.NewHBox(\n\t\t\t\twidget.NewButtonWithIcon(\"\"\
+  , theme.MoveDownIcon(), nil),\n\t\t\t\twidget.NewButtonWithIcon(\"\", theme.DeleteIcon(),\
+  \ nil),\n\t\t\t)\n\t\t\treturn container.NewBorder(nil, nil, nil, buttonBox, widget.NewLabel(\"\
+  template name\"))\n\t\t},\n\t\tfunc(itemID widget.ListItemID, item fyne.CanvasObject)\
+  \ {\n\t\t\ttemplateName := repo.TemplateList().Get(itemID)\n\t\t\titem.(*fyne.Container).Objects[0].(*widget.Label).SetText(templateName)\n\
+  \n\t\t\tbtns := item.(*fyne.Container).Objects[1].(*fyne.Container).Objects\n\t\t\
+  \tbtns[0].(*widget.Button).OnTapped = func() {\n\t\t\t\tdownloadToLocal(w, templateName)\n\
+  \t\t\t}\n\t\t\tbtns[1].(*widget.Button).OnTapped = func() {\n\t\t\t\tdeleteFromS3(w,\
+  \ templateName, itemID)\n\t\t\t}\n\t\t},\n\t)\n\tlist.OnSelected = func(id widget.ListItemID)\
+  \ {\n\t\ttemplName := repo.TemplateList().Get(id)\n\t\trepo.TemplateList().SetCurrSelectedTemplate(templName)\n\
+  \t\tchannel.RefreshCurrSelectedLabelReq <- struct{}{}\n\t}\n\treturn list\n}\n\n\
+  func deleteFromS3(w fyne.Window, templateName string, itemID int) {\n\tdeletionConfirmCallback\
+  \ := func(response bool) {\n\t\tif !response {\n\t\t\treturn\n\t\t}\n\n\t\terr :=\
+  \ ses.DeleteSEStemplate(&templateName)\n\t\tif err != nil {\n\t\t\tlog.Println(\"\
+  fail to delete a template: \", err)\n\t\t\tdialog.ShowError(errors.New(\"fail to\
+  \ delete\\n\"+err.Error()), w)\n\t\t\treturn\n\t\t}\n\t\trepo.TemplateList().Delete(itemID)\n\
+  \t\tchannel.RefreshTemplateListReq <- struct{}{}\n\t\tdialog.ShowInformation(\"\
+  Information\", \"success to delete\", w)\n\t}\n\n\tcnf := dialog.NewConfirm(\"Confirmation\"\
+  ,\n\t\tfmt.Sprintf(\"Are you sure to delete \\\"%s\\\"\", templateName),\n\t\tdeletionConfirmCallback,\
+  \ w)\n\tcnf.SetDismissText(\"No\")\n\tcnf.SetConfirmText(\"Yes\")\n\tcnf.Show()\n\
+  }\n\nfunc downloadToLocal(w fyne.Window, templateName string) {\n\toutput, err :=\
+  \ ses.GetSEStemplate(&templateName)\n\tif err != nil {\n\t\tlog.Println(\"fail to\
+  \ get a template: \", err)\n\t\tdialog.ShowError(errors.New(\"fail to download\\\
+  n\"+err.Error()), w)\n\t\treturn\n\t}\n\n\thomdir, err := homedir.Dir()\n\tif err\
+  \ != nil {\n\t\tlog.Println(\"fail to get a homedir: \", err)\n\t\treturn\n\t}\n\
+  \tdownPath := filepath.Join(homdir, _downloadDir)\n\n\twriteErr := ioutil.WriteFile(\n\
+  \t\tfilepath.Join(downPath, *output.Template.TemplateName+\".html\"),\n\t\t[]byte(*output.Template.HtmlPart),\
+  \ 0644)\n\tif writeErr != nil {\n\t\tlog.Println(\"fail to save a file: \", writeErr)\n\
+  \t\tdialog.ShowError(errors.New(\"fail to save a template file\\n\"+writeErr.Error()),\
+  \ w)\n\t}\n\n\tinfoWin := dialog.NewConfirm(\"Success\", fmt.Sprintf(\"download\
+  \ path : %s\", downPath),\n\t\tfunc(response bool) {\n\t\t\tif response {\n\t\t\t\
+  \topenDir(downPath)\n\t\t\t}\n\t\t}, w)\n\n\tinfoWin.SetDismissText(\"Close\")\n\
+  \tinfoWin.SetConfirmText(\"Open download path\")\n\tinfoWin.Show()\n}\n\nfunc openDir(path\
+  \ string) {\n\tvar args []string\n\tswitch runtime.GOOS {\n\tcase \"darwin\":\n\t\
+  \targs = []string{\"open\", path}\n\tcase \"windows\":\n\t\targs = []string{\"cmd\"\
+  , \"/c\", \"start\", path}\n\tdefault:\n\t\targs = []string{\"xdg-open\", path}\n\
+  \t}\n\tcmd := exec.Command(args[0], args[1:]...)\n\terr := cmd.Run()\n\tif err !=\
+  \ nil {\n\t\tlog.Println(\"open in directory: \", err)\n\t}\n}\n\nfunc MakeUploadBtn(w\
+  \ fyne.Window) *widget.Button {\n\treturn widget.NewButtonWithIcon(\"Upload\", theme.ContentAddIcon(),\
+  \ func() {\n\t\ttemplateName := widget.NewEntry()\n\t\tsubject := widget.NewEntry()\n\
+  \n\t\tfilePath := widget.NewEntry()\n\t\tfindPathBtn := makeFindHTMLbtn(w, filePath)\n\
+  \t\tpath := container.NewBorder(nil, nil, nil, findPathBtn, filePath)\n\n\t\tcontents\
+  \ := widget.NewForm(\n\t\t\twidget.NewFormItem(\"Template name\", templateName),\n\
+  \t\t\twidget.NewFormItem(\"Subject\", subject),\n\t\t\twidget.NewFormItem(\"Path\"\
+  , path),\n\t\t)\n\n\t\tuploadForm := dialog.NewCustomConfirm(\"Upload a Template\"\
+  , \"upload\", \"cancel\", contents,\n\t\t\tfunc(ok bool) {\n\t\t\t\tif !ok {\n\t\
+  \t\t\t\treturn\n\t\t\t\t}\n\n\t\t\t\tif filepath.Ext(filePath.Text) != \".html\"\
+  \ {\n\t\t\t\t\tdialog.ShowError(errors.New(\"please load a html file\"), w)\n\t\t\
+  \t\t\treturn\n\t\t\t\t}\n\n\t\t\t\thtmlFile, readFileErr := ioutil.ReadFile(filePath.Text)\n\
+  \t\t\t\tif readFileErr != nil {\n\t\t\t\t\tlog.Println(\"failed to read a file:\
+  \ \", readFileErr)\n\t\t\t\t\tdialog.ShowError(errors.New(\"failed to read a file\\\
+  n\"+readFileErr.Error()), w)\n\t\t\t\t\treturn\n\t\t\t\t}\n\n\t\t\t\tcontents :=\
+  \ string(htmlFile)\n\t\t\t\tinputTemplate := &sessdk.Template{\n\t\t\t\t\tHtmlPart:\
+  \     &contents,\n\t\t\t\t\tTemplateName: &templateName.Text,\n\t\t\t\t\tSubjectPart:\
+  \  &subject.Text,\n\t\t\t\t}\n\n\t\t\t\tuploadErr := ses.UploadSEStemplate(inputTemplate)\n\
+  \t\t\t\tif uploadErr != nil {\n\t\t\t\t\tlog.Println(\"fail to upload: \", uploadErr)\n\
+  \t\t\t\t\tdialog.ShowError(errors.New(\"fail to upload\\n\"+uploadErr.Error()),\
+  \ w)\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tdialog.ShowInformation(\"Information\"\
+  , \"Success to upload\", w)\n\t\t\t\trepo.TemplateList().Append(templateName.Text)\n\
+  \t\t\t\tchannel.RefreshTemplateListReq <- struct{}{}\n\t\t\t}, w)\n\n\t\tuploadForm.Resize(fyne.NewSize(400,\
+  \ 250))\n\t\tuploadForm.Show()\n\t})\n}\n\nfunc makeFindHTMLbtn(w fyne.Window, filePath\
+  \ *widget.Entry) *widget.Button {\n\tfindBtn := widget.NewButtonWithIcon(\"find\"\
+  , theme.SearchIcon(),\n\t\tfunc() {\n\t\t\tfd := dialog.NewFileOpen(func(reader\
+  \ fyne.URIReadCloser, err error) {\n\t\t\t\tif err == nil && reader == nil {\n\t\
+  \t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tif err != nil {\n\t\t\t\t\tdialog.ShowError(err,\
+  \ w)\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tpath := getHTMLpath(reader)\n\t\t\t\t\
+  filePath.SetText(path)\n\t\t\t}, w)\n\n\t\t\tfd.SetFilter(storage.NewExtensionFileFilter([]string{\"\
+  .html\"}))\n\t\t\tfd.Show()\n\t\t},\n\t)\n\treturn findBtn\n}\n\nfunc getHTMLpath(f\
+  \ fyne.URIReadCloser) (path string) {\n\tif f == nil {\n\t\treturn\n\t}\n\n\text\
+  \ := f.URI().Extension()\n\tif ext == \".html\" {\n\t\tpath = f.URI().String()\n\
+  \t\tscheme := f.URI().Scheme() + \"://\"\n\n\t\treturn path[len(scheme):]\n\t}\n\
+  \terr := f.Close()\n\tif err != nil {\n\t\tlog.Println(\"failed to close stream:\
+  \ \", err)\n\t}\n\treturn\n}\n"
+ 0.45754927
+
+
+

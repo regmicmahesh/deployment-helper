@@ -1,0 +1,18 @@
+[project]
+name = "deployment-helper"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cohere>=5.13.8",
+    "openai>=1.59.7",
+    "pydantic>=2.10.5",
+    "requests>=2.32.3",
+    "structlog>=25.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+]
