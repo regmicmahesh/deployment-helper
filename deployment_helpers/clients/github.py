@@ -1,4 +1,6 @@
 import typing as ty
+import asyncio
+import aiohttp
 from dataclasses import dataclass, field
 import base64
 import requests
@@ -15,15 +17,15 @@ class GithubFile:
     content: str = field(default="")
 
 
-def _get_file_content_by_path(
+async def _add_content_to_github_file(
     *,
     logger=structlog.get_logger(),
     access_token: str,
     repository_path: str,
     branch_name: str,
-    path: str,
-) -> str:
-    logger = logger.bind(path=path)
+    github_file: GithubFile,
+) -> GithubFile:
+    logger = logger.bind(path=github_file.path)
     logger.info("invoking github api to obtain file content")
 
     headers = {
@@ -32,30 +34,30 @@ def _get_file_content_by_path(
     }
 
     # https://docs.github.com/en/rest/repos/contents?apiVersion=2022-11-28
-    base_url = (
-        f"{GITHUB_API_URL}/repos/{repository_path}/contents/{path}?ref={branch_name}"
-    )
+    base_url = f"{GITHUB_API_URL}/repos/{repository_path}/contents/{github_file.path}?ref={branch_name}"
 
-    response = requests.get(base_url, headers=headers)
-    response.raise_for_status()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(base_url, headers=headers) as response:
+            response.raise_for_status()
+            data = await response.json()
 
     logger.debug(
         "obtained file content response from github api",
-        response=response.json(),
-        status_code=response.status_code,
+        response=data,
+        status_code=response.status,
     )
 
-    if isinstance(response.json(), dict):
-        content_encoded = response.json()["content"]
+    if isinstance(data, dict):
+        content_encoded = data["content"]
         try:
-            return base64.b64decode(content_encoded).decode("utf-8")
+            github_file.content = base64.b64decode(content_encoded).decode("utf-8")
         except UnicodeDecodeError:
             pass
 
-    return ""
+    return github_file
 
 
-def get_github_files(
+async def get_github_files(
     *,
     logger=structlog.get_logger(),
     github_access_token: str,
@@ -78,40 +80,46 @@ def get_github_files(
         "obtaining file list from github api",
     )
 
-    response = requests.get(base_url, headers=headers)
-    response.raise_for_status()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(base_url, headers=headers) as response:
+            response.raise_for_status()
+            data = await response.json()
 
-    data = response.json()
-
-    logger.info(
-        "obtained file list from github api",
-        status_code=response.status_code,
-    )
-
-    github_files = []
-    for file in data["tree"]:
-        # Skip folders.
-        if file["type"] == "tree":
-            continue
-
-        # If file_filter is defined, then exclude which doesn't pass the
-        # predicate.
-        if file_filter and not file_filter(file["path"]):
-            logger.debug("skipping file because of file filter", file_path=file["path"])
-            continue
-
-        content = _get_file_content_by_path(
-            logger=logger,
-            access_token=github_access_token,
-            repository_path=repository_path,
-            branch_name=branch_name,
-            path=file["path"],
+        logger.info(
+            "obtained file list from github api",
+            status_code=response.status,
         )
 
-        github_file = GithubFile(
-            path=file["path"], size=file["size"], url=file["url"], content=content
-        )
+        tasks = []
+        for file in data["tree"]:
+            # Skip folders.
+            if file["type"] == "tree":
+                continue
 
-        github_files.append(github_file)
+            # If file_filter is defined, then exclude which doesn't pass the
+            # predicate.
+            if file_filter and not file_filter(file["path"]):
+                logger.debug(
+                    "skipping file because of file filter", file_path=file["path"]
+                )
+                continue
 
-    return github_files
+            github_file = GithubFile(
+                path=file["path"],
+                size=file["size"],
+                url=file["url"],
+            )
+
+            tasks.append(
+                _add_content_to_github_file(
+                    logger=logger,
+                    access_token=github_access_token,
+                    repository_path=repository_path,
+                    branch_name=branch_name,
+                    github_file=github_file,
+                )
+            )
+
+        github_files = await asyncio.gather(*tasks)
+
+        return github_files

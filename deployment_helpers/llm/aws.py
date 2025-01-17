@@ -51,7 +51,7 @@ class AwsSdkCalls(BaseModel):
     aws_statements: list[AwsStatement]
 
 
-def find_aws_sdk_calls(
+async def find_aws_sdk_calls(
     *,
     logger=structlog.get_logger(),
     api_key: str,
@@ -66,7 +66,7 @@ def find_aws_sdk_calls(
         file_path=file_path,
         aws_services=aws_services_with_actions_str,
     )
-    response = invoke_structured(
+    response = await invoke_structured(
         openai_api_key=api_key,
         user_prompt=user_prompt,
         response_format=AwsSdkCalls,
@@ -119,7 +119,7 @@ class AwsServices(BaseModel):
     service_names: list[str]
 
 
-def find_aws_service_names(
+async def find_aws_service_names(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
@@ -133,7 +133,7 @@ def find_aws_service_names(
         file_path=file_path,
         aws_service_names=aws_service_names_str,
     )
-    response = invoke_structured(
+    response = await invoke_structured(
         openai_api_key=openai_api_key,
         user_prompt=user_prompt,
         response_format=AwsServices,
@@ -169,7 +169,7 @@ class AwsIamPolicy(BaseModel):
     policy_document: str
 
 
-def refine_iam_policy(
+async def refine_iam_policy(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
@@ -178,7 +178,7 @@ def refine_iam_policy(
     iam_policy_str = json.dumps(iam_policy, indent=4)
     user_prompt = REFINE_IAM_POLICY.format(policy=iam_policy_str)
 
-    response = invoke_structured(
+    response = await invoke_structured(
         openai_api_key=openai_api_key,
         user_prompt=user_prompt,
         response_format=AwsIamPolicy,

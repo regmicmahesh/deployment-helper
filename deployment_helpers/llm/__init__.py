@@ -1,3 +1,4 @@
+import asyncio
 import json
 import typing as ty
 import structlog
@@ -39,7 +40,7 @@ def _is_valid_aws_service_action(
         return False
 
 
-def generate_iam_policy_from_repository(
+async def generate_iam_policy_from_repository(
     *,
     logger=structlog.get_logger(),
     github_access_token: str,
@@ -56,7 +57,7 @@ def generate_iam_policy_from_repository(
     )
     logger.info("obtaining files from github")
 
-    github_files = get_github_files(
+    github_files = await get_github_files(
         logger=logger,
         github_access_token=github_access_token,
         repository_path=github_repository_name,
@@ -79,23 +80,30 @@ def generate_iam_policy_from_repository(
     logger = logger.bind(relevant_files_count=len(relevant_source_files))
     logger.info("relevant source files filtered successfully")
 
-    actions_dict: dict[str, set[str]] = defaultdict(set)
+    tasks = []
+
     for file in relevant_source_files:
-        aws_statements = _get_relevant_aws_statements_from_file(
-            logger=logger,
-            openai_api_key=openai_api_key,
-            file_path=file.path,
-            file_content=file.content,
+        tasks.append(
+            _get_relevant_aws_statements_from_file(
+                logger=logger,
+                openai_api_key=openai_api_key,
+                file_path=file.path,
+                file_content=file.content,
+            )
         )
-        for stmt in aws_statements:
-            actions_dict[stmt.resource].add(f"{stmt.service}:{stmt.action}")
+
+    aws_statements = await asyncio.gather(*tasks)
+
+    actions_dict: dict[str, set[str]] = defaultdict(set)
+    for stmt in aws_statements:
+        actions_dict[stmt.resource].add(f"{stmt.service}:{stmt.action}")
 
     iam_policy = _construct_iam_policy(
         logger=logger,
         actions_dict=actions_dict,
     )
 
-    refined_iam_policy = refine_iam_policy(
+    refined_iam_policy = await refine_iam_policy(
         logger=logger,
         openai_api_key=openai_api_key,
         iam_policy=iam_policy,
@@ -128,7 +136,7 @@ def _construct_iam_policy(
     return iam_policy
 
 
-def _get_relevant_aws_statements_from_file(
+async def _get_relevant_aws_statements_from_file(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
@@ -138,7 +146,7 @@ def _get_relevant_aws_statements_from_file(
     logger = logger.bind(file_path=file_path)
     logger.info("processing relevant source file")
 
-    aws_services = find_aws_service_names(
+    aws_services = await find_aws_service_names(
         logger=logger,
         openai_api_key=openai_api_key,
         source_code=file_content,
@@ -147,9 +155,12 @@ def _get_relevant_aws_statements_from_file(
 
     relevant_aws_services: dict[str, set[str]] = {}
     for aws_service in aws_services.service_names:
+        if aws_service not in AWS_SERVICES_MAP:
+            # TODO: add logging behaviour
+            continue
         relevant_aws_services[aws_service] = AWS_SERVICES_MAP[aws_service]
 
-    sdk_calls = find_aws_sdk_calls(
+    sdk_calls = await find_aws_sdk_calls(
         logger=logger,
         api_key=openai_api_key,
         source_code=file_content,

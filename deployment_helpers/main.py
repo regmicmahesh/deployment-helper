@@ -1,8 +1,9 @@
 import os
+import asyncio
 import structlog
 import logging
 
-from deployment_helpers.llm import get_iam_policy_from_repository
+from deployment_helpers.llm import generate_iam_policy_from_repository
 
 structlog.configure(
     wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
@@ -17,8 +18,8 @@ GITHUB_REPOSITORY_NAME = "awslabs/aws-simple-ec2-cli"
 GITHUB_BRANCH_NAME = "main"
 
 
-def main():
-    iam_policy = get_iam_policy_from_repository(
+async def main():
+    iam_policy = await generate_iam_policy_from_repository(
         github_access_token=GITHUB_ACCESS_TOKEN,
         cohere_api_key=COHERE_API_KEY,
         openai_api_key=OPENAI_API_KEY,
@@ -30,4 +31,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
