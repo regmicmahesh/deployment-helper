@@ -1,6 +1,6 @@
 import typing as ty
 import structlog
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI
 
 MODEL_NAME = "gpt-4o-mini"
 
@@ -9,14 +9,14 @@ T = ty.TypeVar("T")
 logger = structlog.get_logger()
 
 
-def invoke(
+async def invoke(
     *,
     openai_api_key: str,
     user_prompt: str,
 ):
-    client = OpenAI(api_key=openai_api_key)
+    client = AsyncOpenAI(api_key=openai_api_key)
 
-    chat_completion = client.chat.completions.create(
+    chat_completion = await client.chat.completions.create(
         messages=[
             {
                 "role": "user",

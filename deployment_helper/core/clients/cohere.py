@@ -1,12 +1,11 @@
+import typing as ty
 import cohere
 import structlog
-from dataclasses import dataclass
 
 RERANKER_MODEL_NAME = "rerank-v3.5"
 
 
-@dataclass
-class RankedText:
+class RankedText(ty.TypedDict):
     rank: int
     content: str
     relevance_score: float
@@ -35,17 +34,12 @@ def rerank_documents(
         top_n=top_n,
     )
 
-    ranked_texts: list[RankedText] = []
-
-    for result in response.results:
-        if result.relevance_score < relevance_score_threshold:
-            continue
-
-        ranked_text = RankedText(
-            rank=result.index,
-            content=documents[result.index],
-            relevance_score=result.relevance_score,
+    ranked_texts = [
+        RankedText(
+            rank=r.index, content=documents[r.index], relevance_score=r.relevance_score
         )
-        ranked_texts.append(ranked_text)
+        for r in response.results
+        if r.relevance_score >= relevance_score_threshold
+    ]
 
     return ranked_texts

@@ -4,15 +4,17 @@ import typing as ty
 import structlog
 from collections import defaultdict
 
-from deployment_helpers.aws_data import AWS_SERVICES_MAP
-from deployment_helpers.clients.github import get_github_files
-from deployment_helpers.llm.aws import (
-    AwsStatement,
+from deployment_helper.core.aws_iam_actions import AWS_SERVICES_MAP
+from deployment_helper.core.clients.github import fetch_github_repository_files
+from deployment_helper.core.llm_engine.aws_analyzer import (
+    AwsSdkCall,
     find_aws_sdk_calls,
     find_aws_service_names,
     refine_iam_policy,
 )
-from deployment_helpers.llm.relevance import find_relevant_github_source_files
+from deployment_helper.core.llm_engine.github_analyzer import (
+    find_relevant_github_source_files,
+)
 
 
 def _is_source_code(file_path: str):
@@ -57,7 +59,7 @@ async def generate_iam_policy_from_repository(
     )
     logger.info("obtaining files from github")
 
-    github_files = await get_github_files(
+    github_files = await fetch_github_repository_files(
         logger=logger,
         github_access_token=github_access_token,
         repository_path=github_repository_name,
@@ -80,27 +82,26 @@ async def generate_iam_policy_from_repository(
     logger = logger.bind(relevant_files_count=len(relevant_source_files))
     logger.info("relevant source files filtered successfully")
 
-    tasks = []
-
-    for file in relevant_source_files:
-        tasks.append(
-            _get_relevant_aws_statements_from_file(
+    results = await asyncio.gather(
+        *(
+            _get_relevant_aws_sdk_calls_from_file(
                 logger=logger,
                 openai_api_key=openai_api_key,
-                file_path=file.path,
-                file_content=file.content,
+                file_path=file["path"],
+                file_content=file.get("content", ""),
             )
+            for file in relevant_source_files
         )
+    )
 
-    aws_statements = await asyncio.gather(*tasks)
-
-    actions_dict: dict[str, set[str]] = defaultdict(set)
-    for stmt in aws_statements:
-        actions_dict[stmt.resource].add(f"{stmt.service}:{stmt.action}")
+    statements: dict[str, set[str]] = defaultdict(set)
+    for aws_stmts in results:
+        for stmt in aws_stmts:
+            statements[stmt.resource].add(f"{stmt.service}:{stmt.action}")
 
     iam_policy = _construct_iam_policy(
         logger=logger,
-        actions_dict=actions_dict,
+        statements=statements,
     )
 
     refined_iam_policy = await refine_iam_policy(
@@ -109,22 +110,22 @@ async def generate_iam_policy_from_repository(
         iam_policy=iam_policy,
     )
 
-    return json.dumps(refined_iam_policy.policy_document, indent=4)
+    return json.dumps(json.loads(refined_iam_policy.policy_document), indent=4)
 
 
 def _construct_iam_policy(
     *,
     logger=structlog.get_logger(),
-    actions_dict: dict[str, set[str]],
+    statements: dict[str, set[str]],
 ) -> ty.Any:
-    logger.info("final list of actions", actions_dict=actions_dict)
+    logger.info("final list of actions", actions_dict=statements)
 
     iam_policy = {
         "Version": "2012-10-17",
         "Statement": [],
     }
 
-    for resource, actions in actions_dict.items():
+    for resource, actions in statements.items():
         iam_policy["Statement"].append(
             {
                 "Effect": "Allow",
@@ -136,13 +137,13 @@ def _construct_iam_policy(
     return iam_policy
 
 
-async def _get_relevant_aws_statements_from_file(
+async def _get_relevant_aws_sdk_calls_from_file(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
     file_path: str,
     file_content: str,
-) -> list[AwsStatement]:
+) -> list[AwsSdkCall]:
     logger = logger.bind(file_path=file_path)
     logger.info("processing relevant source file")
 
@@ -168,9 +169,9 @@ async def _get_relevant_aws_statements_from_file(
         aws_services=relevant_aws_services,
     )
 
-    logger.bind(aws_statements=sdk_calls.aws_statements)
+    logger.bind(aws_statements=sdk_calls.sdk_calls)
 
-    for idx, stmt in enumerate(sdk_calls.aws_statements):
+    for idx, stmt in enumerate(sdk_calls.sdk_calls):
         if not _is_valid_aws_service_action(
             logger=logger,
             service=stmt.service,
@@ -181,7 +182,7 @@ async def _get_relevant_aws_statements_from_file(
                 invalid_action=stmt.action,
                 invalid_service=stmt.service,
             )
-            del sdk_calls.aws_statements[idx]
+            del sdk_calls.sdk_calls[idx]
             continue
 
-    return sdk_calls.aws_statements
+    return sdk_calls.sdk_calls
