@@ -4,8 +4,8 @@ import structlog
 import typing as ty
 from pydantic import BaseModel, Field
 
-from deployment_helpers.aws_data import AWS_SERVICE_NAMES, AWS_SERVICES_MAP
-from deployment_helpers.clients.openai import invoke_structured
+from deployment_helper.core.aws_iam_actions import AWS_SERVICE_NAMES, AWS_SERVICES_MAP
+from deployment_helper.core.clients import openai
 
 
 AWS_SDK_CALLS_PROMPT = """
@@ -14,7 +14,12 @@ extracting AWS SDK calls from source code. Your task is to analyze the provided
 source code and return a list of all AWS SDK calls found, along with relevant
 details about each call.
 
-**Contextual Information:**
+GUIDELINES:
+- The actions should be in standard API Format of AWS such as ListTemplates,
+  GetHostedZone, PassRole etc. If it's in boto3 python format such as list_templates,
+  modify it to ListTemplates.
+
+CONTEXTUAL INFORMATION:
 - The source code may be written in various programming languages including
   Python, Java, and JavaScript.
 - Focus on standard AWS SDKs such as Boto3 (Python), AWS SDK for Java,
@@ -34,7 +39,7 @@ Source Code:
 """
 
 
-class AwsStatement(BaseModel):
+class AwsSdkCall(BaseModel):
     service: str = Field(description="Service name such as ses, sqs, s3 etc.")
     action: str = Field(
         description="Valid action for the service such as ListTemplates for ses, GetObject for s3 etc."
@@ -48,10 +53,10 @@ class AwsStatement(BaseModel):
 
 
 class AwsSdkCalls(BaseModel):
-    aws_statements: list[AwsStatement]
+    sdk_calls: list[AwsSdkCall]
 
 
-def find_aws_sdk_calls(
+async def find_aws_sdk_calls(
     *,
     logger=structlog.get_logger(),
     api_key: str,
@@ -66,7 +71,7 @@ def find_aws_sdk_calls(
         file_path=file_path,
         aws_services=aws_services_with_actions_str,
     )
-    response = invoke_structured(
+    response = await openai.invoke_structured(
         openai_api_key=api_key,
         user_prompt=user_prompt,
         response_format=AwsSdkCalls,
@@ -74,7 +79,7 @@ def find_aws_sdk_calls(
 
     logger.info(
         "obtained aws sdk call statements used in the file",
-        sdk_calls=response.aws_statements,
+        sdk_calls=response.sdk_calls,
     )
 
     return response
@@ -119,7 +124,7 @@ class AwsServices(BaseModel):
     service_names: list[str]
 
 
-def find_aws_service_names(
+async def find_aws_service_names(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
@@ -133,7 +138,7 @@ def find_aws_service_names(
         file_path=file_path,
         aws_service_names=aws_service_names_str,
     )
-    response = invoke_structured(
+    response = await openai.invoke_structured(
         openai_api_key=openai_api_key,
         user_prompt=user_prompt,
         response_format=AwsServices,
@@ -158,6 +163,7 @@ GUIDELINES:
 2. The ARN should not contain any templated variables such as ${{bucketName}},
    <bucket-name> etc. Instead replace it with "*" wildcards.
 3. It should not contain duplicate actions or redundant statements.
+4. If there is no actions in the policy, don't try to add any extra actions.
 
 
 INPUT:
@@ -169,7 +175,7 @@ class AwsIamPolicy(BaseModel):
     policy_document: str
 
 
-def refine_iam_policy(
+async def refine_iam_policy(
     *,
     logger=structlog.get_logger(),
     openai_api_key: str,
@@ -178,7 +184,7 @@ def refine_iam_policy(
     iam_policy_str = json.dumps(iam_policy, indent=4)
     user_prompt = REFINE_IAM_POLICY.format(policy=iam_policy_str)
 
-    response = invoke_structured(
+    response = await openai.invoke_structured(
         openai_api_key=openai_api_key,
         user_prompt=user_prompt,
         response_format=AwsIamPolicy,
